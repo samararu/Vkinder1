@@ -7,13 +7,13 @@ from vk_api.longpoll import VkLongPoll, VkEventType
 
 class VkBot():
 
-    def __init__(self, acces_token=None, token=None) -> None:
-        if token == None:
-            self.vk = vk_api.VkApi(acces_token = cfg.acces_token, token = cfg.token)
-        else:
-            self.vk = vk_api.VkApi(acces_token, token=token)
+    def __init__(self, access_token=None, token=None) -> None:
+        self.vk = vk_api.VkApi(token=cfg.user_access_token)
+        self.vk_group = vk_api.VkApi(token=cfg.group_access_token)
+        self.vk_size = 50
 
-        self.longpoll = VkLongPoll(self.vk)
+
+        self.longpoll = VkLongPoll(self.vk_group)
         self.steps_functions = {
             1: lambda id_user, message_text: self.set_city(id_user, message_text),
             2: lambda id_user, message_text: self.set_age(id_user, message_text),
@@ -22,6 +22,9 @@ class VkBot():
             5: lambda id_user, message_text: self.create_partners_list(id_user),
             6: lambda id_user, message_text: self.processing_step_6(id_user, message_text)
         }
+
+        Vkinder_db.create_tables()
+
 
     def get_long_pool(self) -> VkLongPoll:
         return self.longpoll
@@ -34,7 +37,7 @@ class VkBot():
         id_user - id пользователя
         message_text - текст отправляемого сообщения
         """
-        self.vk.method('messages.send',
+        self.vk_group.method('messages.send',
                        {'user_id': id_user,
                         'message': message_text,
                         'random_id': get_random_id()})
@@ -50,7 +53,7 @@ class VkBot():
         """
 
         attachments = ",".join(attachments)
-        self.vk.method('messages.send',
+        self.vk_group.method('messages.send',
                        {'user_id': id_user,
                         'message': message_text,
                         'random_id': get_random_id(),
@@ -124,7 +127,7 @@ class VkBot():
         Vkinder_db.update_user_gender(id_user, gender)
         Vkinder_db.update_user_position(id_user, 4)
         self.send_message(id_user,
-                          f"""Для поиска установлен возраст {message_text}.
+                          f"""Для поиска установлен пол {message_text}.
             Введите семейное положение:
             [1] Не женат (не замужем)
             [2] Встречается
@@ -153,17 +156,19 @@ class VkBot():
                               [7] Влюблен(-а)
                               [8] В гражданском браке""")
 
-    def create_partners_list(self, id_user):
+    def load_new_partners_from_api(self, id_user, offset=0):
         city, gender, age, family = Vkinder_db.get_user_settings(id_user)
         age_from = age - 2 if age > 20 else 18
         age_to = age + 2
         partners = self.vk.method('users.search',
-                                  {'count': 50,
+                                  {'count': self.vk_size,
                                    'city_id': city,
                                    'sex': gender,
                                    'status': family,
                                    'age_from': age_from,
-                                   'age_to': age_to})
+                                   'age_to': age_to,
+                                   'offset': offset,
+                                   })
         partners = partners['items']
         for partner in partners:
             uid = partner['id']
@@ -171,7 +176,15 @@ class VkBot():
             lastname = partner['last_name']
             closed = partner['is_closed']
             if not closed:
-                Vkinder_db.insert_partners([id_user, uid, firstname, lastname])
+                Vkinder_db.insert_partners([
+                    id_user,
+                    uid,
+                    firstname,
+                    lastname,
+                ])
+
+    def create_partners_list(self, id_user):
+        self.load_new_partners_from_api(id_user, 0)
         Vkinder_db.update_user_position(id_user, 6)
         self.get_new_partner(id_user)
 
@@ -193,15 +206,28 @@ class VkBot():
     def get_new_partner(self, id_user):
         partner = Vkinder_db.get_user_from_db(id_user)
         if partner:
-            id_partner, firstname, lastname = partner
-            Vkinder_db.delete_candidate(id_user, id_partner)
-            message = f"""{firstname} {lastname}
-            vk.com/id{id_partner}
-            Чтобы изменить настройки поиска введите [И]зменить
-            Чтобы найти нового человека введите любое сообщение"""
-            photos = self.get_top_photos(id_partner)
-            photos = [photo[0] for photo in photos]
-            self.send_message_with_photos(id_user, message, photos)
+            self.send_partner(id_user, partner)
+        else:
+            new_offset = Vkinder_db.increment_user_offset(id_user, self.vk_size)
+            self.load_new_partners_from_api(id_user, offset=new_offset)
+            partner = Vkinder_db.get_user_from_db(id_user)
+            if partner:
+                self.send_partner(id_user, partner)
+            else:
+                message = f"""Больше анкет нет"""
+                self.send_message(id_user, message)
+
+
+    def send_partner(self, id_user, partner):
+        id_partner, firstname, lastname = partner
+        message = f"""{firstname} {lastname}
+                    vk.com/id{id_partner}
+                    Чтобы изменить настройки поиска введите [И]зменить
+                    Чтобы найти нового человека введите любое сообщение"""
+        photos = self.get_top_photos(id_partner)
+        photos = [photo[0] for photo in photos]
+        self.send_message_with_photos(id_user, message, photos)
+        Vkinder_db.delete_candidate(id_user, id_partner)
 
     def processing_step_6(self, id_user, message_text):
         if message_text[0].upper() == "И":
