@@ -158,7 +158,7 @@ class VkBot():
         age_from = age - 2 if age > 20 else 18
         age_to = age + 2
         partners = self.vk.method('users.search',
-                                  {'count': 1000,
+                                  {'count': 50,
                                    'city_id': city,
                                    'sex': gender,
                                    'status': family,
