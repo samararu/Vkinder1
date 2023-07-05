@@ -1,14 +1,18 @@
 import psycopg2
+
 from cfg import db_url_object
 
 with psycopg2.connect(db_url_object) as conn:
-    def create_table() -> None:
+
+    def create_tables() -> None:
+        create_partners_table()
+        create_users_table()
+
+    def create_partners_table() -> None:
         """ Функция, которая сначала удаляет таблицу 'Partners', если она уже есть, а затем создает новую. """
 
         with conn.cursor() as cursor:
             cursor.execute("""DROP TABLE IF EXISTS Partners;""")
-            conn.commit()
-
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS Partners(
                     finder_id INTEGER,
@@ -19,8 +23,24 @@ with psycopg2.connect(db_url_object) as conn:
                     );
                 """)
             conn.commit()
-        conn.close()
 
+    def create_users_table():
+        """ Функция, которая создает таблицу 'Users', если её нет. """
+
+        with conn.cursor() as cursor:
+            cursor.execute("""DROP TABLE IF EXISTS Users;""")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS Users (
+                    id INTEGER PRIMARY KEY,
+                    fcity INTEGER,
+                    fgender INTEGER CHECK(fgender IN(1, 2)),  
+                    fage INTEGER,
+                    ffamily INTEGER CHECK(ffamily IN(1, 2, 3, 4, 5, 6, 7, 8)),
+                    step INTEGER CHECK (step IN(1, 2, 3, 4, 5, 6)),
+                    vkoffset INTEGER
+                );
+                """)
+            conn.commit()
 
     def insert_partners(data):
         """ Функция, добавляющая в таблицу 'Partner'  подошедших по заданным критериям кандидатов. """
@@ -61,24 +81,6 @@ with psycopg2.connect(db_url_object) as conn:
             conn.commit()
 
 
-    def create_table_user():
-        """ Функция, которая создает таблицу 'Users', если её нет. """
-
-        with conn.cursor() as cursor:
-            cursor.execute("""DROP TABLE IF EXISTS Users;""")
-            conn.commit()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS Users (
-                    id INTEGER PRIMARY KEY,
-                    fcity INTEGER,
-                    fgender INTEGER CHECK(fgender IN(1, 2)),  
-                    fage INTEGER,
-                    ffamily INTEGER CHECK(ffamily IN(1, 2, 3, 4, 5, 6, 7, 8)),
-                    step INTEGER CHECK (step IN(1, 2, 3, 4, 5, 6))
-                );
-                """)
-            conn.commit()
-
 
 
     def insert_user(uid):
@@ -86,7 +88,7 @@ with psycopg2.connect(db_url_object) as conn:
 
         with conn.cursor() as cursor:
             cursor.execute("""
-                INSERT INTO Users(id, step) VALUES(%s, 1);
+                INSERT INTO Users(id, step, vkoffset) VALUES(%s, 1, 0);
                 """, (uid,))
             conn.commit()
 
@@ -165,3 +167,15 @@ with psycopg2.connect(db_url_object) as conn:
             else:
                 insert_user(uid)
                 return 1
+
+    def increment_user_offset(user_id, to_add):
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE users SET vkoffset = vkoffset+%s WHERE id = %s RETURNING vkoffset;
+                """, (to_add, user_id))
+            conn.commit()
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            else:
+                return 0
