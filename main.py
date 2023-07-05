@@ -1,6 +1,4 @@
-import vk_api
-import cfg
-from vk_api.longpoll import VkLongPoll, VkEventType
+from vk_api.longpoll import VkEventType
 
 import vk_bot
 
